@@ -7,21 +7,44 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.awaitEachGesture
-import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material3.Button
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Slider
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.rememberScrollState
 import kotlin.math.PI
 import kotlin.math.pow
 import kotlin.math.sin
@@ -37,31 +60,35 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-/* ---------------------------------------------------
+/* =========================================================
    SES MOTORU
---------------------------------------------------- */
+   ========================================================= */
 
 class OrgSoundEngine {
 
     private val sampleRate = 44100
 
-    private val tracks = mutableMapOf<Int, AudioTrack>()
+    private val tracks =
+        mutableMapOf<Int, AudioTrack>()
 
-    var instrument = "Org"
-    var volume = 0.65f
-    var transpose = 0
+    var instrument: String = "Org"
+    var volume: Float = 0.65f
+    var transpose: Int = 0
 
-    private fun frequency(midi: Int): Double {
-        return 440.0 * 2.0.pow((midi - 69) / 12.0)
+    private fun midiToFrequency(midi: Int): Double {
+        return 440.0 * 2.0.pow(
+            (midi - 69) / 12.0
+        )
     }
 
     private fun waveform(
-        t: Double,
+        time: Double,
         frequency: Double,
         type: String
     ): Double {
 
-        val phase = 2.0 * PI * frequency * t
+        val phase =
+            2.0 * PI * frequency * time
 
         return when (type) {
 
@@ -96,36 +123,61 @@ class OrgSoundEngine {
 
     fun playNote(originalMidi: Int) {
 
-        val midi = originalMidi + transpose
+        val midi =
+            originalMidi + transpose
 
         stopNote(midi)
 
-        val durationSeconds =
-            if (instrument == "Org") 1.2 else 1.5
-
-        val frames = (sampleRate * durationSeconds).toInt()
-
-        val data = ShortArray(frames)
-
-        val frequency = frequency(midi)
-
-        for (i in 0 until frames) {
-
-            val t = i.toDouble() / sampleRate
-
-            val envelope = when {
-                t < 0.02 -> t / 0.02
-                instrument == "Org" -> 0.92
-                else -> (1.0 - t / durationSeconds).coerceAtLeast(0.0)
+        val duration =
+            if (instrument == "Org") {
+                2.0
+            } else {
+                1.5
             }
 
-            val value =
-                waveform(t, frequency, instrument) *
+        val frameCount =
+            (sampleRate * duration).toInt()
+
+        val audioData =
+            ShortArray(frameCount)
+
+        val frequency =
+            midiToFrequency(midi)
+
+        for (i in 0 until frameCount) {
+
+            val time =
+                i.toDouble() / sampleRate
+
+            val envelope =
+                when {
+
+                    time < 0.02 ->
+                        time / 0.02
+
+                    instrument == "Org" ->
+                        0.92
+
+                    else ->
+                        (
+                            1.0 -
+                                    time / duration
+                            ).coerceAtLeast(0.0)
+                }
+
+            val sample =
+                waveform(
+                    time,
+                    frequency,
+                    instrument
+                ) *
                         envelope *
                         volume
 
-            data[i] =
-                (value * Short.MAX_VALUE)
+            audioData[i] =
+                (
+                    sample * Short.MAX_VALUE
+                )
                     .toInt()
                     .coerceIn(
                         Short.MIN_VALUE.toInt(),
@@ -134,25 +186,44 @@ class OrgSoundEngine {
                     .toShort()
         }
 
-        val format = AudioFormat.Builder()
-            .setSampleRate(sampleRate)
-            .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
-            .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
-            .build()
+        val format =
+            AudioFormat.Builder()
+                .setSampleRate(sampleRate)
+                .setEncoding(
+                    AudioFormat.ENCODING_PCM_16BIT
+                )
+                .setChannelMask(
+                    AudioFormat.CHANNEL_OUT_MONO
+                )
+                .build()
 
-        val attributes = AudioAttributes.Builder()
-            .setUsage(AudioAttributes.USAGE_MEDIA)
-            .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
-            .build()
+        val attributes =
+            AudioAttributes.Builder()
+                .setUsage(
+                    AudioAttributes.USAGE_MEDIA
+                )
+                .setContentType(
+                    AudioAttributes.CONTENT_TYPE_MUSIC
+                )
+                .build()
 
-        val track = AudioTrack.Builder()
-            .setAudioAttributes(attributes)
-            .setAudioFormat(format)
-            .setTransferMode(AudioTrack.MODE_STATIC)
-            .setBufferSizeInBytes(data.size * 2)
-            .build()
+        val track =
+            AudioTrack.Builder()
+                .setAudioAttributes(attributes)
+                .setAudioFormat(format)
+                .setTransferMode(
+                    AudioTrack.MODE_STATIC
+                )
+                .setBufferSizeInBytes(
+                    audioData.size * 2
+                )
+                .build()
 
-        track.write(data, 0, data.size)
+        track.write(
+            audioData,
+            0,
+            audioData.size
+        )
 
         tracks[midi] = track
 
@@ -161,14 +232,26 @@ class OrgSoundEngine {
 
     fun stopNote(originalMidi: Int) {
 
-        val midi = originalMidi + transpose
+        val midi =
+            originalMidi + transpose
 
-        tracks[midi]?.let {
+        val track =
+            tracks[midi]
+
+        if (track != null) {
 
             try {
-                it.stop()
-                it.flush()
-                it.release()
+                track.stop()
+            } catch (_: Exception) {
+            }
+
+            try {
+                track.flush()
+            } catch (_: Exception) {
+            }
+
+            try {
+                track.release()
             } catch (_: Exception) {
             }
         }
@@ -178,11 +261,15 @@ class OrgSoundEngine {
 
     fun release() {
 
-        tracks.values.forEach {
+        tracks.values.forEach { track ->
 
             try {
-                it.stop()
-                it.release()
+                track.stop()
+            } catch (_: Exception) {
+            }
+
+            try {
+                track.release()
             } catch (_: Exception) {
             }
         }
@@ -191,16 +278,17 @@ class OrgSoundEngine {
     }
 }
 
-/* ---------------------------------------------------
+/* =========================================================
    ANA UYGULAMA
---------------------------------------------------- */
+   ========================================================= */
 
 @Composable
 fun OrgProApp() {
 
-    val engine = remember {
-        OrgSoundEngine()
-    }
+    val engine =
+        remember {
+            OrgSoundEngine()
+        }
 
     var instrument by remember {
         mutableStateOf("Org")
@@ -254,7 +342,9 @@ fun OrgProApp() {
                     .padding(10.dp)
             ) {
 
-                /* ÜST BAR */
+                /* ============================
+                   ÜST BAR
+                   ============================ */
 
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -267,40 +357,40 @@ fun OrgProApp() {
                     Column {
 
                         Text(
-                            "ORG PRO",
+                            text = "ORG PRO",
                             color = Color.White,
                             fontSize = 25.sp
                         )
 
                         Text(
-                            "Profesyonel Mobil Org",
+                            text = "Profesyonel Mobil Org",
                             color = Color.LightGray,
                             fontSize = 13.sp
                         )
                     }
 
                     Row(
+                        verticalAlignment =
+                            Alignment.CenterVertically,
                         horizontalArrangement =
-                            Arrangement.spacedBy(6.dp)
+                            Arrangement.spacedBy(5.dp)
                     ) {
 
                         SmallButton(
-                            "−",
+                            text = "−",
                             enabled = octave > 1
                         ) {
                             octave--
                         }
 
                         Text(
-                            "Oktav $octave",
+                            text = "Oktav $octave",
                             color = Color.White,
-                            modifier = Modifier
-                                .align(Alignment.CenterVertically)
-                                .padding(horizontal = 6.dp)
+                            fontSize = 13.sp
                         )
 
                         SmallButton(
-                            "+",
+                            text = "+",
                             enabled = octave < 7
                         ) {
                             octave++
@@ -308,14 +398,18 @@ fun OrgProApp() {
                     }
                 }
 
-                Spacer(Modifier.height(8.dp))
+                Spacer(
+                    modifier = Modifier.height(7.dp)
+                )
 
-                /* KONTROLLER */
+                /* ============================
+                   KONTROLLER
+                   ============================ */
 
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement =
-                        Arrangement.spacedBy(7.dp)
+                        Arrangement.spacedBy(6.dp)
                 ) {
 
                     InstrumentButton(
@@ -325,16 +419,26 @@ fun OrgProApp() {
 
                         instrument =
                             when (instrument) {
-                                "Org" -> "Piyano"
-                                "Piyano" -> "Bağlama"
-                                "Bağlama" -> "Gitar"
-                                "Gitar" -> "Flüt"
-                                else -> "Org"
+
+                                "Org" ->
+                                    "Piyano"
+
+                                "Piyano" ->
+                                    "Bağlama"
+
+                                "Bağlama" ->
+                                    "Gitar"
+
+                                "Gitar" ->
+                                    "Flüt"
+
+                                else ->
+                                    "Org"
                             }
                     }
 
                     SmallButton(
-                        "T−"
+                        text = "T−"
                     ) {
 
                         transpose =
@@ -343,7 +447,7 @@ fun OrgProApp() {
                     }
 
                     SmallButton(
-                        "T+"
+                        text = "T+"
                     ) {
 
                         transpose =
@@ -352,25 +456,33 @@ fun OrgProApp() {
                     }
 
                     SmallButton(
-                        if (sustain) "Sustain ✓"
-                        else "Sustain"
+                        text =
+                            if (sustain)
+                                "Sustain ✓"
+                            else
+                                "Sustain"
                     ) {
 
                         sustain = !sustain
                     }
                 }
 
-                Spacer(Modifier.height(7.dp))
+                Spacer(
+                    modifier = Modifier.height(5.dp)
+                )
 
-                /* SES */
+                /* ============================
+                   SES
+                   ============================ */
 
                 Row(
+                    modifier = Modifier.fillMaxWidth(),
                     verticalAlignment =
                         Alignment.CenterVertically
                 ) {
 
                     Text(
-                        "Ses",
+                        text = "Ses",
                         color = Color.LightGray,
                         fontSize = 12.sp
                     )
@@ -380,58 +492,85 @@ fun OrgProApp() {
                         onValueChange = {
                             volume = it
                         },
-                        modifier = Modifier.weight(1f)
+                        modifier =
+                            Modifier.weight(1f)
                     )
 
                     Text(
-                        "${(volume * 100).toInt()}%",
+                        text =
+                            "${(volume * 100).toInt()}%",
                         color = Color.White,
                         fontSize = 12.sp
                     )
                 }
 
-                Spacer(Modifier.height(4.dp))
+                Spacer(
+                    modifier = Modifier.height(3.dp)
+                )
 
-                /* KLAVYE */
+                /* ============================
+                   KLAVYE
+                   ============================ */
 
                 PianoKeyboard(
                     octave = octave,
-                    engine = engine,
-                    sustain = sustain
+                    engine = engine
                 )
             }
         }
     }
 }
 
-/* ---------------------------------------------------
+/* =========================================================
    PİYANO KLAVYESİ
---------------------------------------------------- */
+   ========================================================= */
 
 @Composable
 fun PianoKeyboard(
     octave: Int,
-    engine: OrgSoundEngine,
-    sustain: Boolean
+    engine: OrgSoundEngine
 ) {
 
     val whiteNotes =
         listOf(
-            "C", "D", "E", "F", "G", "A", "B",
-            "C", "D", "E", "F", "G", "A", "B"
+            "C",
+            "D",
+            "E",
+            "F",
+            "G",
+            "A",
+            "B",
+            "C",
+            "D",
+            "E",
+            "F",
+            "G",
+            "A",
+            "B"
         )
 
     val blackPositions =
         listOf(
-            0, 1, 3, 4, 5,
-            7, 8, 10, 11, 12
+            0,
+            1,
+            3,
+            4,
+            5,
+            7,
+            8,
+            10,
+            11,
+            12
         )
+
+    val baseMidi =
+        12 * (octave + 1)
 
     BoxWithConstraints(
         modifier = Modifier
             .fillMaxWidth()
-            .weight(1f)
-            .padding(top = 6.dp)
+            .height(270.dp)
+            .padding(top = 5.dp)
     ) {
 
         val whiteWidth =
@@ -440,10 +579,9 @@ fun PianoKeyboard(
         val blackWidth =
             whiteWidth * 0.60f
 
-        val baseMidi =
-            12 * (octave + 1)
-
-        /* BEYAZ TUŞLAR */
+        /* ============================
+           BEYAZ TUŞLAR
+           ============================ */
 
         Row(
             modifier = Modifier
@@ -455,7 +593,9 @@ fun PianoKeyboard(
                 Arrangement.spacedBy(1.dp)
         ) {
 
-            whiteNotes.forEachIndexed { index, note ->
+            whiteNotes.forEachIndexed {
+                    index,
+                    note ->
 
                 val midi =
                     baseMidi + index
@@ -473,28 +613,32 @@ fun PianoKeyboard(
             }
         }
 
-        /* SİYAH TUŞLAR */
+        /* ============================
+           SİYAH TUŞLAR
+           ============================ */
 
         blackPositions.forEach { position ->
 
             val midi =
-                baseMidi + position + 1
+                baseMidi +
+                        position +
+                        1
 
             PianoKey(
                 note = "♯",
                 black = true,
                 modifier = Modifier
                     .width(blackWidth)
-                    .height(
-                        maxHeight * 0.58f
-                    )
+                    .height(155.dp)
                     .offset(
                         x =
                             whiteWidth *
                                     (position + 1) -
                                     blackWidth / 2
                     )
-                    .align(Alignment.TopStart)
+                    .align(
+                        Alignment.TopStart
+                    )
             ) {
 
                 engine.playNote(midi)
@@ -503,9 +647,9 @@ fun PianoKeyboard(
     }
 }
 
-/* ---------------------------------------------------
-   TUŞ
---------------------------------------------------- */
+/* =========================================================
+   PİYANO TUŞU
+   ========================================================= */
 
 @Composable
 fun PianoKey(
@@ -519,62 +663,50 @@ fun PianoKey(
         mutableStateOf(false)
     }
 
-    val background =
+    val keyColor =
         if (black) {
 
-            if (pressed)
-                Color(80, 80, 90)
-            else
+            if (pressed) {
+                Color(75, 75, 82)
+            } else {
                 Color(18, 18, 20)
+            }
 
         } else {
 
-            if (pressed)
-                Color(210, 210, 215)
-            else
+            if (pressed) {
+                Color(205, 205, 210)
+            } else {
                 Color(245, 245, 242)
+            }
         }
 
     Box(
         modifier = modifier
             .background(
-                background,
-                RoundedCornerShape(
+                color = keyColor,
+                shape = RoundedCornerShape(
                     bottomStart = 7.dp,
                     bottomEnd = 7.dp
                 )
             )
-            .pointerInput(Unit) {
+            .pointerInput(note) {
 
-                awaitEachGesture {
+                detectTapGestures(
 
-                    awaitFirstDown()
+                    onPress = {
 
-                    pressed = true
+                        pressed = true
 
-                    onPressed()
+                        onPressed()
 
-                    awaitPointerEventScope {
-
-                        do {
-
-                            val event =
-                                awaitPointerEvent()
-
-                            if (
-                                event.changes
-                                    .all {
-                                        !it.pressed
-                                    }
-                            ) {
-                                break
-                            }
-
-                        } while (true)
+                        try {
+                            awaitRelease()
+                        } finally {
+                            pressed = false
+                        }
                     }
-
-                    pressed = false
-                }
+                )
             },
         contentAlignment =
             Alignment.BottomCenter
@@ -587,16 +719,16 @@ fun PianoKey(
                 color = Color.DarkGray,
                 fontSize = 11.sp,
                 modifier = Modifier.padding(
-                    bottom = 12.dp
+                    bottom = 10.dp
                 )
             )
         }
     }
 }
 
-/* ---------------------------------------------------
-   BUTONLAR
---------------------------------------------------- */
+/* =========================================================
+   KÜÇÜK BUTON
+   ========================================================= */
 
 @Composable
 fun SmallButton(
@@ -610,14 +742,23 @@ fun SmallButton(
         enabled = enabled,
         contentPadding =
             PaddingValues(
-                horizontal = 10.dp
+                horizontal = 9.dp,
+                vertical = 2.dp
             ),
-        shape = RoundedCornerShape(9.dp)
+        shape =
+            RoundedCornerShape(9.dp)
     ) {
 
-        Text(text)
+        Text(
+            text = text,
+            fontSize = 12.sp
+        )
     }
 }
+
+/* =========================================================
+   ENSTRÜMAN BUTONU
+   ========================================================= */
 
 @Composable
 fun InstrumentButton(
@@ -629,9 +770,18 @@ fun InstrumentButton(
     Button(
         onClick = onClick,
         modifier = modifier,
-        shape = RoundedCornerShape(9.dp)
+        contentPadding =
+            PaddingValues(
+                horizontal = 8.dp,
+                vertical = 2.dp
+            ),
+        shape =
+            RoundedCornerShape(9.dp)
     ) {
 
-        Text(text)
+        Text(
+            text = text,
+            fontSize = 12.sp
+        )
     }
 }
